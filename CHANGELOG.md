@@ -56,6 +56,14 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## [v0.53.5](https://github.com/cosmos/cosmos-sdk/releases/tag/v0.53.5) - 2025-12-12
 
+### Improvements
+
+* [#261](https://github.com/crypto-org-chain/cosmos-sdk/pull/261) reduce scope of mutex in `PriorityNonceMempool.Remove`.
+* [#507](https://github.com/crypto-org-chain/cosmos-sdk/pull/507) mempool respect gas wanted returned by ante handler
+* [#884](https://github.com/crypto-org-chain/cosmos-sdk/pull/884) Avoid decoding tx for in PrepareProposal if it's NopMempool.
+* (store) [#934](https://github.com/crypto-org-chain/cosmos-sdk/pull/934) Add pause pruning.
+* (baseapp) [#20208](https://github.com/cosmos/cosmos-sdk/pull/20208) Skip running validateBasic for rechecking txs.
+
 ### Features
 
 * (crypto/ledger) [#25435](https://github.com/cosmos/cosmos-sdk/pull/25435) Add SetDERConversion to reset skipDERConversion and App name for ledger.
