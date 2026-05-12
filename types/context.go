@@ -422,11 +422,11 @@ func (c Context) CacheContext() (cc Context, writeCache func()) {
 // It uses an efficient approach than CacheContext, without wrapping stores.
 func (c Context) RunAtomic(cb func(Context) error) error {
 	evtManager := NewEventManager()
-	cacheMS, ok := c.ms.(storetypes.CacheMultiStore)
+	atomicMS, ok := c.ms.(storetypes.AtomicMultiStore)
 	if !ok {
-		return errors.New("multistore is not a CacheMultiStore")
+		return errors.New("multistore does not support RunAtomic")
 	}
-	if err := cacheMS.RunAtomic(func(ms storetypes.CacheMultiStore) error {
+	if err := atomicMS.RunAtomic(func(ms storetypes.CacheMultiStore) error {
 		ctx := c.WithMultiStore(ms).WithEventManager(evtManager)
 		return cb(ctx)
 	}); err != nil {

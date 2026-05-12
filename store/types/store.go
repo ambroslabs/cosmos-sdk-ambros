@@ -159,7 +159,12 @@ type MultiStore interface {
 type CacheMultiStore interface {
 	MultiStore
 	Write() // Writes operations to underlying KVStore
+}
 
+// AtomicMultiStore is an optional capability on a CacheMultiStore that supports
+// running a callback against a branched store, with the result committed only
+// on success. Used by Context.RunAtomic.
+type AtomicMultiStore interface {
 	RunAtomic(func(CacheMultiStore) error) error
 }
 
