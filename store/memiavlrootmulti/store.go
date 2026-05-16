@@ -55,14 +55,6 @@ type Store struct {
 	// non-iavl stores merged into the commit-info hash). v0.42 chains
 	// pre-Delta also produce this shape, so default true.
 	sdk46Compact bool
-
-	// pendingInitialVersion holds an InitialHeight set via
-	// SetInitialVersion that hasn't been applied to the underlying
-	// memiavl trees yet. Applied just before the first db.Commit so
-	// that leaves Set during InitGenesis keep version=1 (matching
-	// iavl v0.15.3) rather than picking up the bumped tree.version.
-	// See SetInitialVersion / Commit for details.
-	pendingInitialVersion int64
 }
 
 func NewStore(dir string, logger log.Logger, sdk46Compact bool, chainId string) *Store {
@@ -126,17 +118,6 @@ func (rs *Store) Commit() types.CommitID {
 		if store.GetStoreType() != types.StoreTypeIAVL {
 			_ = store.Commit()
 		}
-	}
-
-	// Apply any deferred SetInitialVersion now that the InitGenesis
-	// Sets have been flushed into the trees (so leaves keep version=1).
-	// The next SaveVersion inside db.Commit() will pick up the
-	// initial_height as the chain version.
-	if rs.pendingInitialVersion > 0 {
-		if err := rs.db.SetInitialVersion(rs.pendingInitialVersion); err != nil {
-			panic(err)
-		}
-		rs.pendingInitialVersion = 0
 	}
 
 	if _, err := rs.db.Commit(); err != nil {
@@ -400,16 +381,8 @@ func (rs *Store) LoadVersion(ver int64) error {
 
 func (rs *Store) SetInterBlockCache(_ types.MultiStorePersistentCache) {}
 
-// SetInitialVersion is invoked by baseapp.InitChain BEFORE the genesis
-// InitChainer runs, with the chain's initial_height. We can't apply it
-// to memiavl.DB at that point because doing so would bump tree.version
-// to initial_height-1, and the subsequent InitGenesis Sets (deferred
-// in memiavlstore.Set) would mint leaves at tree.version+1 = initial_height
-// instead of the canonical version=1 that iavl v0.15.3 produces. We
-// record the pending value and apply it in Commit() after flush().
 func (rs *Store) SetInitialVersion(version int64) error {
-	rs.pendingInitialVersion = version
-	return nil
+	return rs.db.SetInitialVersion(version)
 }
 
 // Snapshot/Restore (state-sync). Stubbed for the v0.42 replay
