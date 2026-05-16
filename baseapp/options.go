@@ -63,6 +63,16 @@ func SetInterBlockCache(cache sdk.MultiStorePersistentCache) func(*BaseApp) {
 	return func(app *BaseApp) { app.setInterBlockCache(cache) }
 }
 
+// SetCommitMultiStore replaces the default rootmulti-backed
+// CommitMultiStore with the given implementation. Apps that want to
+// run on memiavl (or any alternative backend) call this option in
+// NewBaseApp(...). The default store constructed in NewBaseApp is
+// discarded — the alternative store is responsible for its own
+// LoadLatestVersion at the application's Load* call.
+func SetCommitMultiStore(cms sdk.CommitMultiStore) func(*BaseApp) {
+	return func(app *BaseApp) { app.cms = cms }
+}
+
 // SetSnapshotInterval sets the snapshot interval.
 func SetSnapshotInterval(interval uint64) func(*BaseApp) {
 	return func(app *BaseApp) { app.SetSnapshotInterval(interval) }
