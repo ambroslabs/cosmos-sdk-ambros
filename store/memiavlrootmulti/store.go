@@ -296,6 +296,18 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	opts.CreateIfMissing = true
 	opts.InitialStores = initialStores
 	opts.TargetVersion = uint32(version)
+	// ambros patch: archival defaults — snapshot every 100k blocks and
+	// keep 5 locally so an external uploader has buffer to ship each one
+	// to object storage before memiavl prunes it. Only applied when the
+	// caller didn't set them via SetMemIAVLOptions; explicit zero is
+	// indistinguishable from default in uint32, so callers who want
+	// "never auto-rewrite" should set a large interval rather than 0.
+	if opts.SnapshotInterval == 0 {
+		opts.SnapshotInterval = 100_000
+	}
+	if opts.SnapshotKeepRecent == 0 {
+		opts.SnapshotKeepRecent = 5
+	}
 	db, err := memiavl.Load(rs.dir, opts, rs.chainId)
 	if err != nil {
 		return sdkerrors.Wrapf(err, "fail to load memiavl at %s", rs.dir)
