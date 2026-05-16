@@ -705,51 +705,62 @@ func (d Dec) Marshal() ([]byte, error) {
 }
 
 // MarshalTo implements the gogo proto custom type interface.
+//
+// ambros patch: write digits directly into the destination via
+// big.Int.Append instead of allocating a fresh []byte from Marshal()
+// and then copying. Saves one allocation per Dec write -- material
+// across the thousands of Dec writes per block in distribution.
 func (d *Dec) MarshalTo(data []byte) (n int, err error) {
 	if d.i == nil {
 		d.i = new(big.Int)
 	}
 
-	if d.i.Cmp(zeroInt) == 0 {
-		copy(data, []byte{0x30})
+	if d.i.Sign() == 0 {
+		data[0] = '0'
 		return 1, nil
 	}
 
-	bz, err := d.Marshal()
-	if err != nil {
-		return 0, err
-	}
+	result := d.i.Append(data[:0], 10)
+	return len(result), nil
+}
 
-	copy(data, bz)
-	return len(bz), nil
+// Size implements the gogo proto custom type interface.
+//
+// ambros patch: compute decimal-digit count from BitLen + power-of-10
+// table instead of calling Marshal() and discarding the bytes. Eliminates
+// the per-Dec double-marshal that gogoproto's Size()+MarshalTo() pattern
+// otherwise produces.
+func (d *Dec) Size() int {
+	if d.i == nil || d.i.Sign() == 0 {
+		return 1
+	}
+	n := decDigitCount(d.i)
+	if d.i.Sign() < 0 {
+		n++
+	}
+	return n
 }
 
 // Unmarshal implements the gogo proto custom type interface.
+//
+// ambros patch: uses fastDecUnmarshalText (uint64 18-digit chunks) instead
+// of big.Int.UnmarshalText. Wire format is byte-for-byte compatible;
+// verified by TestDecMarshalUnmarshalByteEquality.
 func (d *Dec) Unmarshal(data []byte) error {
 	if len(data) == 0 {
 		d = nil
 		return nil
 	}
 
-	if d.i == nil {
-		d.i = new(big.Int)
-	}
-
-	if err := d.i.UnmarshalText(data); err != nil {
+	i, err := fastDecUnmarshalText(data)
+	if err != nil {
 		return err
 	}
-
-	if d.i.BitLen() > maxBitLen {
-		return fmt.Errorf("decimal out of range; got: %d, max: %d", d.i.BitLen(), maxBitLen)
+	if i.BitLen() > maxBitLen {
+		return fmt.Errorf("decimal out of range; got: %d, max: %d", i.BitLen(), maxBitLen)
 	}
-
+	d.i = i
 	return nil
-}
-
-// Size implements the gogo proto custom type interface.
-func (d *Dec) Size() int {
-	bz, _ := d.Marshal()
-	return len(bz)
 }
 
 // Override Amino binary serialization by proxying to protobuf.
