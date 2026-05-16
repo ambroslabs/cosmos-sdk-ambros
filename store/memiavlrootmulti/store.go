@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sort"
 	"strings"
 
@@ -133,6 +134,17 @@ func (rs *Store) Commit() types.CommitID {
 	rs.lastCommitInfo = convertCommitInfo(rs.db.LastCommitInfo())
 	if rs.sdk46Compact {
 		rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+	}
+	if os.Getenv("AMBROS_DEBUG_COMMITINFO") != "" {
+		ci := rs.lastCommitInfo
+		sorted := make([]types.StoreInfo, len(ci.StoreInfos))
+		copy(sorted, ci.StoreInfos)
+		sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+		fmt.Fprintf(os.Stderr, "AMBROS_DEBUG memiavl v=%d hash=%X\n", ci.Version, ci.Hash())
+		for _, si := range sorted {
+			fmt.Fprintf(os.Stderr, "AMBROS_DEBUG memiavl v=%d store=%-12s hash=%X version=%d\n",
+				ci.Version, si.Name, si.CommitId.Hash, si.CommitId.Version)
+		}
 	}
 	return rs.lastCommitInfo.CommitID()
 }

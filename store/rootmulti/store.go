@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sort"
 	"strings"
 
@@ -928,10 +929,19 @@ func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore
 		storeInfos = append(storeInfos, si)
 	}
 
-	return &types.CommitInfo{
+	ci := &types.CommitInfo{
 		Version:    version,
 		StoreInfos: storeInfos,
 	}
+	if os.Getenv("AMBROS_DEBUG_COMMITINFO") != "" {
+		sort.SliceStable(storeInfos, func(i, j int) bool { return storeInfos[i].Name < storeInfos[j].Name })
+		fmt.Fprintf(os.Stderr, "AMBROS_DEBUG classic v=%d hash=%X\n", version, ci.Hash())
+		for _, si := range storeInfos {
+			fmt.Fprintf(os.Stderr, "AMBROS_DEBUG classic v=%d store=%-12s hash=%X version=%d\n",
+				version, si.Name, si.CommitId.Hash, si.CommitId.Version)
+		}
+	}
+	return ci
 }
 
 // Gets commitInfo from disk.
