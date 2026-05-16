@@ -3,7 +3,15 @@ package types
 import (
 	"fmt"
 	"math/big"
+	"sync"
 )
+
+// bigIntPool recycles *big.Int instances used as transient working
+// scratch (e.g. fastDecUnmarshalText's chunkBuf). Pool members must
+// never be retained after Put — only safe for purely-local scratch.
+var bigIntPool = sync.Pool{
+	New: func() interface{} { return new(big.Int) },
+}
 
 // decChunkBase is 10^18 — the largest power of 10 that fits in uint64.
 // Used to chunk decimal-ASCII -> big.Int conversion 18 digits at a time
@@ -77,7 +85,8 @@ func fastDecUnmarshalText(data []byte) (*big.Int, error) {
 	}
 
 	result := new(big.Int)
-	chunkBuf := new(big.Int)
+	chunkBuf := bigIntPool.Get().(*big.Int)
+	defer bigIntPool.Put(chunkBuf)
 
 	const chunkDigits = 18
 
