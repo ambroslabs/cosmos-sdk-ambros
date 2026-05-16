@@ -296,6 +296,12 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	opts.CreateIfMissing = true
 	opts.InitialStores = initialStores
 	opts.TargetVersion = uint32(version)
+	// Force synchronous WAL flush so commits are durable by the time
+	// Commit() returns. memiavl's default async-WAL path queues to a
+	// background goroutine that may not drain if tendermint exits on
+	// an AppHash mismatch — which would leave the on-disk state empty
+	// and make any post-mortem diff impossible.
+	opts.AsyncCommitBuffer = -1
 	db, err := memiavl.Load(rs.dir, opts, rs.chainId)
 	if err != nil {
 		return sdkerrors.Wrapf(err, "fail to load memiavl at %s", rs.dir)
