@@ -81,6 +81,16 @@ func (k Keeper) AllocateTokens(
 	communityTax := k.GetCommunityTax(ctx)
 	voteMultiplier := sdk.OneDec().Sub(proposerMultiplier).Sub(communityTax)
 
+	// ambros patch: hoist the two loop-invariant operands out of the
+	// per-validator hot path. feesCollected and voteMultiplier do not
+	// change inside the loop, so feesCollected.MulDecTruncate(voteMultiplier)
+	// produces the same DecCoins every iteration -- compute once. Same
+	// for sdk.NewDec(totalPreviousPower) on the denominator. Result is
+	// byte-identical to the un-hoisted version (DecCoins.MulDecTruncate
+	// is deterministic and the operands are unchanged across iterations).
+	voteFees := feesCollected.MulDecTruncate(voteMultiplier)
+	totalPower := sdk.NewDec(totalPreviousPower)
+
 	// allocate tokens proportionally to voting power
 	// TODO consider parallelizing later, ref https://github.com/cosmos/cosmos-sdk/pull/3099#discussion_r246276376
 	for _, vote := range previousVotes {
@@ -88,8 +98,8 @@ func (k Keeper) AllocateTokens(
 
 		// TODO consider microslashing for missing votes.
 		// ref https://github.com/cosmos/cosmos-sdk/issues/2525#issuecomment-430838701
-		powerFraction := sdk.NewDec(vote.Validator.Power).QuoTruncate(sdk.NewDec(totalPreviousPower))
-		reward := feesCollected.MulDecTruncate(voteMultiplier).MulDecTruncate(powerFraction)
+		powerFraction := sdk.NewDec(vote.Validator.Power).QuoTruncate(totalPower)
+		reward := voteFees.MulDecTruncate(powerFraction)
 		k.AllocateTokensToValidator(ctx, validator, reward)
 		remaining = remaining.Sub(reward)
 	}
@@ -101,6 +111,14 @@ func (k Keeper) AllocateTokens(
 
 // AllocateTokensToValidator allocate tokens to a particular validator, splitting according to commission
 func (k Keeper) AllocateTokensToValidator(ctx sdk.Context, val stakingtypes.ValidatorI, tokens sdk.DecCoins) {
+	// ambros patch: cache val.GetOperator() and its bech32 string. The
+	// original code called GetOperator() 8 times and .String() (= bech32
+	// encode) twice per validator per block, even though both are stable
+	// for the lifetime of this call. Bech32 encoding was ~1.07s in the
+	// 30s pprof sample purely from these two callsites.
+	operator := val.GetOperator()
+	operatorStr := operator.String()
+
 	// split tokens between validator and delegators according to commission
 	commission := tokens.MulDec(val.GetCommission())
 	shared := tokens.Sub(commission)
@@ -110,27 +128,27 @@ func (k Keeper) AllocateTokensToValidator(ctx sdk.Context, val stakingtypes.Vali
 		sdk.NewEvent(
 			types.EventTypeCommission,
 			sdk.NewAttribute(sdk.AttributeKeyAmount, commission.String()),
-			sdk.NewAttribute(types.AttributeKeyValidator, val.GetOperator().String()),
+			sdk.NewAttribute(types.AttributeKeyValidator, operatorStr),
 		),
 	)
-	currentCommission := k.GetValidatorAccumulatedCommission(ctx, val.GetOperator())
+	currentCommission := k.GetValidatorAccumulatedCommission(ctx, operator)
 	currentCommission.Commission = currentCommission.Commission.Add(commission...)
-	k.SetValidatorAccumulatedCommission(ctx, val.GetOperator(), currentCommission)
+	k.SetValidatorAccumulatedCommission(ctx, operator, currentCommission)
 
 	// update current rewards
-	currentRewards := k.GetValidatorCurrentRewards(ctx, val.GetOperator())
+	currentRewards := k.GetValidatorCurrentRewards(ctx, operator)
 	currentRewards.Rewards = currentRewards.Rewards.Add(shared...)
-	k.SetValidatorCurrentRewards(ctx, val.GetOperator(), currentRewards)
+	k.SetValidatorCurrentRewards(ctx, operator, currentRewards)
 
 	// update outstanding rewards
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeRewards,
 			sdk.NewAttribute(sdk.AttributeKeyAmount, tokens.String()),
-			sdk.NewAttribute(types.AttributeKeyValidator, val.GetOperator().String()),
+			sdk.NewAttribute(types.AttributeKeyValidator, operatorStr),
 		),
 	)
-	outstanding := k.GetValidatorOutstandingRewards(ctx, val.GetOperator())
+	outstanding := k.GetValidatorOutstandingRewards(ctx, operator)
 	outstanding.Rewards = outstanding.Rewards.Add(tokens...)
-	k.SetValidatorOutstandingRewards(ctx, val.GetOperator(), outstanding)
+	k.SetValidatorOutstandingRewards(ctx, operator, outstanding)
 }
