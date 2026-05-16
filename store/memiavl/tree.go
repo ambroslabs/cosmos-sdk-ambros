@@ -127,6 +127,14 @@ func hashKey(key []byte) uint32 {
 // Tree verify change sets by replay them to rebuild iavl tree and verify the root hashes
 type Tree struct {
 	version, cowVersion uint32
+	// initialVersion is the chain-version the tree should COMMIT to on
+	// its first SaveVersion, when the chain starts above height 1. It
+	// does NOT bump the per-node version assigned to leaves at Set time:
+	// that stays at tree.version+1 (= 1 for genesis), matching iavl
+	// v0.15.3's leaf-version semantics. Without this decoupling, a chain
+	// with initial_height > 1 would mint genesis leaves with
+	// node.version = initial_height and produce non-canonical AppHashes.
+	initialVersion uint32
 	// root node of empty tree is represented as `nil`
 	root     Node
 	snapshot *Snapshot
@@ -172,10 +180,11 @@ func New(cacheSize int) *Tree {
 // NewWithInitialVersion creates a empty tree with initial-version,
 // it happens when a new store created at the middle of the chain.
 func NewWithInitialVersion(initialVersion uint32, cacheSize int) *Tree {
-	if initialVersion <= 1 {
-		return New(cacheSize)
+	t := New(cacheSize)
+	if initialVersion > 1 {
+		t.initialVersion = initialVersion
 	}
-	return NewEmptyTree(uint64(initialVersion-1), cacheSize)
+	return t
 }
 
 // NewFromSnapshot mmap the blob files and create the root node.
@@ -216,12 +225,9 @@ func (t *Tree) setInitialVersion(initialVersion uint32) {
 		// initial version has no effect if the tree is already initialized
 		return
 	}
-
-	if initialVersion < 1 {
-		t.version = 0
-	} else {
-		t.version = initialVersion - 1
-	}
+	// Record initialVersion separately; SaveVersion applies it at the
+	// first commit so leaves Set in the meantime keep node.version=1.
+	t.initialVersion = initialVersion
 }
 
 // Copy returns a snapshot of the tree which won't be modified by further modifications on the main tree,
@@ -279,6 +285,14 @@ func (t *Tree) SaveVersion(updateHash bool) ([]byte, int64, error) {
 	var hash []byte
 	if updateHash {
 		hash = t.RootHash()
+	}
+
+	// On the first save of a chain that started above height 1, jump
+	// tree.version to initialVersion-1 so the post-increment matches
+	// the chain's initial_height. The leaves were Set with the old
+	// tree.version, so their node.version stays at 1 (canonical).
+	if t.version == 0 && t.initialVersion > 1 {
+		t.version = t.initialVersion - 1
 	}
 
 	t.version++
