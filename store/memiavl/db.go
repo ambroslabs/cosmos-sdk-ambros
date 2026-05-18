@@ -188,7 +188,11 @@ func Load(dir string, opts Options, chainId string) (*DB, error) {
 		return nil, err
 	}
 
-	wal, err := OpenWAL(walPath(dir), &wal.Options{NoCopy: true, NoSync: true})
+	// ambros patch: AllowEmpty=true so an out-of-band bootstrap from a
+	// snapshot at a non-zero version (with the WAL segment renamed to
+	// the matching first-index but no entries yet) doesn't trip
+	// tidwall/wal's "empty log" rejection on Open.
+	wal, err := OpenWAL(walPath(dir), &wal.Options{NoCopy: true, NoSync: true, AllowEmpty: true})
 	if err != nil {
 		return nil, err
 	}
@@ -1258,13 +1262,21 @@ func GetLatestVersion(dir string) (int64, error) {
 		return 0, err
 	}
 
-	wal, err := OpenWAL(walPath(dir), &wal.Options{NoCopy: true})
+	// ambros patch: AllowEmpty=true matches the Load() path -- needed
+	// for the bootstrap-from-snapshot case where WAL is empty but the
+	// snapshot version is the authoritative latest version.
+	wal, err := OpenWAL(walPath(dir), &wal.Options{NoCopy: true, AllowEmpty: true})
 	if err != nil {
 		return 0, err
 	}
 	lastIndex, err := wal.LastIndex()
 	if err != nil {
 		return 0, err
+	}
+	// ambros patch: empty WAL after a snapshot bootstrap -> latest
+	// version is the snapshot's commit version, not 0.
+	if lastIndex == 0 && metadata.CommitInfo != nil {
+		return metadata.CommitInfo.Version, nil
 	}
 	return walVersion(lastIndex, uint32(metadata.InitialVersion)), nil
 }
